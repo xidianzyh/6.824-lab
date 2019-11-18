@@ -1,5 +1,16 @@
 package mapreduce
 
+import (
+	"bufio"
+	"bytes"
+	"encoding/binary"
+	"encoding/json"
+	"io"
+	"io/ioutil"
+	"os"
+	"sort"
+)
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
@@ -44,4 +55,103 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+
+	var mapData []KeyValue
+	for  i := 0; i < nMap; i++ {
+		reduceFile := reduceName(jobName, i, reduceTask)
+		// read kv from redcuceFile
+		mapData = append(mapData, readData(reduceFile) ...)
+	}
+
+	//sort and combine
+	var keySlice []string
+	var keyM = make(map[string]bool)
+	for _, kv := range mapData {
+		if _, ok := keyM[kv.Key]; !ok {
+			keyM[kv.Key] = true
+			keySlice = append(keySlice, kv.Key)
+		}
+	}
+	sort.Strings(keySlice)
+
+	mergeData := make(map[string][]string)
+	for _, kv := range mapData {
+		if _, ok := mergeData[kv.Key]; !ok {
+			mergeData[kv.Key] = make([]string, 0)
+		}
+		mergeData[kv.Key] = append(mergeData[kv.Key], kv.Value)
+	}
+
+	//write data to file
+	outF, err := os.Create(outFile)
+	if err != nil {
+		panic(err)
+	}
+	defer outF.Close()
+
+	bufWriter := bufio.NewWriter(outF)
+	enc := json.NewEncoder(bufWriter)
+
+	for _, key := range keySlice {
+		valSlice := mergeData[key]
+		valReduce := reduceF(key, valSlice)
+		kv :=KeyValue{key, valReduce}
+		enc.Encode(kv)
+	}
+
+	bufWriter.Flush()
 }
+
+
+func readData(reduceFile string) []KeyValue  {
+	result := make([]KeyValue, 0, 1024)
+	//read all file data
+	binData, err := ioutil.ReadFile(reduceFile)
+	if err != nil {
+		panic(err)
+	}
+
+	// construct a reader from byte array (can log the position)
+	r := bytes.NewReader(binData)
+	//deserialize data
+	for {
+		//Read Head
+		var keyLen, valLen uint32
+		err = binary.Read(r, binary.LittleEndian, &keyLen)
+		if err != nil {
+			break
+		}
+		binary.Read(r, binary.LittleEndian, &valLen)
+
+		//read data
+		var keyByte []byte = make([]byte, keyLen)
+		var valByte []byte = make([]byte, valLen)
+
+		if keyLen > 0 {
+			io.ReadFull(r, keyByte)
+		}
+		if keyLen > 0 {
+			io.ReadFull(r, valByte)
+		}
+
+		var kv KeyValue
+		kv.Key = string(keyByte)
+		kv.Value = string(valByte)
+
+		result = append(result, kv)
+	}
+
+	return result
+}
+
+
+
+
+
+
+
+
+
+
+
+

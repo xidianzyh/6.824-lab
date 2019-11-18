@@ -1,7 +1,12 @@
 package mapreduce
 
 import (
+	"bufio"
+	"encoding/binary"
 	"hash/fnv"
+	"io"
+	"io/ioutil"
+	"os"
 )
 
 func doMap(
@@ -52,7 +57,63 @@ func doMap(
 	// Remember to close the file after you have written all the values!
 	//
 	// Your code here (Part I).
-	//
+
+	// read file data
+	inData, err := ioutil.ReadFile(inFile)
+	if err != nil {
+		panic(err)
+	}
+
+	// read the user map function
+	var kvs []KeyValue = mapF(inFile, string(inData));
+
+	// get the output file
+	var splitKvs [][]KeyValue = make([][]KeyValue, nReduce, nReduce)
+	for _, kv := range kvs {
+		var reduceIdx = ihash(kv.Key) % nReduce
+		if splitKvs[reduceIdx] == nil {
+			splitKvs[reduceIdx] = make([]KeyValue, 0)
+		}
+		splitKvs[reduceIdx] = append(splitKvs[reduceIdx], kv)
+	}
+
+	//write the output file
+	for reduceTask := 0; reduceTask < nReduce; reduceTask ++ {
+		reduceFile := reduceName(jobName, mapTask, reduceTask)
+		writeReduceData(reduceFile, splitKvs[reduceTask])
+	}
+
+}
+
+func writeReduceData(reduceFile string, kvs []KeyValue)  {
+	//create file
+	f, err := os.Create(reduceFile)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	//write data
+	w := bufio.NewWriter(f)
+	for _, kv := range kvs {
+		serialization(w, kv)
+	}
+	//flush and close file
+	w.Flush()
+}
+
+func serialization(w io.Writer, kv KeyValue)  {
+	var keyLen uint32 = uint32(len(kv.Key))
+	var valLen uint32 = uint32(len(kv.Value))
+
+	binary.Write(w, binary.LittleEndian, keyLen)
+	binary.Write(w, binary.LittleEndian, valLen)
+	if len(kv.Key) > 0 {
+		w.Write([]byte(kv.Key))
+	}
+	if len(kv.Value) > 0 {
+		w.Write([]byte(kv.Value))
+	}
 }
 
 func ihash(s string) int {

@@ -70,9 +70,11 @@ func check(t *testing.T, files []string) {
 	for outputScanner.Scan() {
 		var v1 int
 		var v2 int
+		//read a line: key: value format
 		text := outputScanner.Text()
 		n, err := fmt.Sscanf(lines[i], "%d", &v1)
 		if n == 1 && err == nil {
+			// only read the key
 			n, err = fmt.Sscanf(text, "%d", &v2)
 		}
 		if err != nil || v1 != v2 {
@@ -100,13 +102,19 @@ func makeInputs(num int) []string {
 	var names []string
 	var i = 0
 	for f := 0; f < num; f++ {
+		// file name
 		names = append(names, fmt.Sprintf("824-mrinput-%d.txt", f))
+		// create file
 		file, err := os.Create(names[f])
 		if err != nil {
 			log.Fatal("mkInput: ", err)
 		}
+		//open file
 		w := bufio.NewWriter(file)
+		//nNumer is the total number that will write to all files.
+		//if there are num files, each file will be writen nNumber/num numbers.
 		for i < (f+1)*(nNumber/num) {
+			//
 			fmt.Fprintf(w, "%d\n", i)
 			i++
 		}
@@ -142,7 +150,11 @@ func cleanup(mr *Master) {
 		removeFile(f)
 	}
 }
-
+/**
+makeInputs: one input file.(all numbers each line)
+MapFunc: Split file content into words, key is the word.
+ReduceFunc:
+ */
 func TestSequentialSingle(t *testing.T) {
 	mr := Sequential("test", makeInputs(1), 1, MapFunc, ReduceFunc)
 	mr.Wait()

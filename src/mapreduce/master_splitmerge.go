@@ -15,12 +15,14 @@ func (mr *Master) merge() {
 	debug("Merge phase")
 	kvs := make(map[string]string)
 	for i := 0; i < mr.nReduce; i++ {
+		//get the reduce file name.
 		p := mergeName(mr.jobName, i)
 		fmt.Printf("Merge: read %s\n", p)
 		file, err := os.Open(p)
 		if err != nil {
 			log.Fatal("Merge: ", err)
 		}
+		//so the nReduce file, shoulde be json format
 		dec := json.NewDecoder(file)
 		for {
 			var kv KeyValue
@@ -32,16 +34,21 @@ func (mr *Master) merge() {
 		}
 		file.Close()
 	}
+
+	// sort the keys
 	var keys []string
 	for k := range kvs {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
+	// the final reduce file.
 	file, err := os.Create("mrtmp." + mr.jobName)
 	if err != nil {
 		log.Fatal("Merge: create ", err)
 	}
+
+	//the json file format
 	w := bufio.NewWriter(file)
 	for _, k := range keys {
 		fmt.Fprintf(w, "%s: %s\n", k, kvs[k])

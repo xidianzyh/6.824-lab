@@ -33,23 +33,58 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 	// have completed successfully, schedule() should return.
 	//
 	// Your code here (Part III, Part IV).
-
+	// 同步语义
 	var wg sync.WaitGroup
-	for i := 0; i < ntasks; i++ {
-		workerAddr := <-registerChan
-		mapFile := mapFiles[i]
-		args := DoTaskArgs{jobName, mapFile, phase, i, n_other}
-		go func() {
-			wg.Add(1)
-			client, _ := rpc.Dial("unix", workerAddr)
-			var reply struct{}
-			client.Call("Worker.DoTask", &args, &reply)
-			client.Close()
-			wg.Done()
-			registerChan <- workerAddr
-		}()
-	}
-	wg.Wait()
+	wg.Add(ntasks)
+	var workerTask map[string][]int = make(map[string][]int)
+	taskChan := make(chan int)
+	closeChan := make(chan bool)
 
+	go func() {
+		for i := 0; i < ntasks; i++ {
+			taskChan <- i
+		}
+	}()
+
+	//关键点：将任务处理也放在 goroutine 中，不会阻塞整个任务。
+	go func() {
+		TaskClose:
+		for {
+			select {
+				case taskId := <- taskChan:
+					workerAddr := <-registerChan
+					mapFile := mapFiles[taskId]
+					// workerTask 没有被并发处理
+					workerTask[workerAddr] = append(workerTask[workerAddr], taskId)
+					args := DoTaskArgs{jobName, mapFile, phase, taskId, n_other}
+					fmt.Printf("分配任务%d 给worker %s\n", taskId, workerAddr)
+					go func() {
+						client, err := rpc.Dial("unix", workerAddr)
+						if err != nil {
+							if len(workerTask[workerAddr]) > 1 {
+								wg.Add(len(workerTask[workerAddr]) - 1)
+							}
+							fmt.Printf("worker%s失败，重新分配任务%v\n", workerAddr, workerTask[workerAddr])
+							for _, taskNo := range workerTask[workerAddr] {
+								taskChan <- taskNo
+							}
+							return
+						}
+						var reply struct{}
+						client.Call("Worker.DoTask", &args, &reply)
+						client.Close()
+						wg.Done()
+						registerChan <- workerAddr
+					}()
+			case <- closeChan:
+				break TaskClose
+			}
+		}
+	}()
+
+	//主线程等待所有任务的执行
+	wg.Wait()
+	// 关闭整个程序的执行
+	closeChan <- true
 	fmt.Printf("Schedule: %v done\n", phase)
 }
